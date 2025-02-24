@@ -1,3 +1,9 @@
+## (NOBRIDGE) ERROR  Video processing error: [TypeError: Cannot read property 'getLogLevel' of null]
+ (NOBRIDGE) ERROR  Mutation error: [Error: Processing failed: Cannot read property 'getLogLevel' of null] gene bu hata acaba hata benim kullandigim videodan olabilir mi?
+
+- Evet, bu hata büyük olasılıkla kullandığınız video dosyası veya FFmpeg'in bu dosyayı işleyememesiyle ilgili olabilir. FFmpeg, bazı video formatlarını veya codec'leri desteklemeyebilir veya video dosyası bozuk olabilir. Bu sorunu çözmek için adım adım ilerleyelim:
+
+
 # Welcome to your Expo app 👋
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).

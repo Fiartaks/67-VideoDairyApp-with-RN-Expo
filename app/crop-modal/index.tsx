@@ -1,129 +1,141 @@
-import { useState } from 'react'
-import { View, Text, TextInput, Pressable, ActivityIndicator } from 'react-native'
-import Slider from '@react-native-community/slider'
-import * as ImagePicker from 'expo-image-picker'
-import { Video } from 'expo-av'
-import { FFmpegKit } from 'ffmpeg-kit-react-native'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'expo-router'
-import { useVideoStore } from '../../store/videoStore'
-import * as FileSystem from 'expo-file-system'
+import React, { useState } from 'react';
+import { View, Text, TextInput, Pressable, ActivityIndicator } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'expo-router';
+import { useVideoStore } from '../../store/videoStore';
+import Slider from '@react-native-community/slider';
+import { cropVideo, convertContentUriToFileUri } from '@/utils/ffmpeg'; // ffmpeg.ts'den import
 
+// CropStep Enumeration
 enum CropStep {
   SELECT,
   CROP,
-  METADATA
+  METADATA,
 }
 
-const convertContentUriToFileUri = async (contentUri: string) => {
-  try {
-    const fileInfo = await FileSystem.getInfoAsync(contentUri)
-    if (fileInfo.exists && fileInfo.uri) {
-      return fileInfo.uri
+// VideoCropper Component
+interface VideoCropperProps {
+  videoUri: string;
+  onCropComplete: (uri: string, duration: number) => void;
+}
+
+const VideoCropper = ({ videoUri, onCropComplete }: VideoCropperProps) => {
+  const videoRef = React.useRef<Video>(null);
+  const [duration, setDuration] = useState(0);
+  const [startTime, setStartTime] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded && !duration) {
+      setDuration(status.durationMillis ? status.durationMillis / 1000 : 0);
     }
-    throw new Error('Video file not found')
-  } catch (error) {
-    console.error('URI conversion error:', error)
-    throw error
-  }
-}
+  };
 
+  const handleSliderChange = (value: number) => {
+    setStartTime(value);
+    if (videoRef.current) {
+      videoRef.current.setPositionAsync(value * 1000);
+    }
+  };
+
+  const handleProcess = async () => {
+    try {
+      setIsProcessing(true);
+      console.log('Starting video processing with URI:', videoUri);
+      // URI'yi file URI'ye çevir
+      const fileUri = await convertContentUriToFileUri(videoUri);
+      // 5 saniyelik bir bölüm kırp
+      const outputUri = await cropVideo(fileUri, startTime, startTime + 5);
+      console.log('Processing completed successfully:', outputUri);
+      onCropComplete(outputUri, 5); // Kırpılan süre sabit 5 saniye
+    } catch (error) {
+      console.error('Detailed error in handleProcess:', error);
+      let errorMessage = 'Failed to process video. ';
+      if (error instanceof Error) {
+        errorMessage += error.message;
+      }
+      alert(errorMessage);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <View className="w-full p-4">
+      <Video
+        ref={videoRef}
+        source={{ uri: videoUri }}
+        style={{ width: '100%', height: 250 }}
+        resizeMode={ResizeMode.CONTAIN}
+        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+        useNativeControls
+        shouldPlay={false}
+      />
+      <View className="mt-4">
+        <Text className="text-center mb-2">
+          Select start point (5 seconds will be processed)
+        </Text>
+        <Slider
+          value={startTime}
+          onValueChange={handleSliderChange}
+          minimumValue={0}
+          maximumValue={Math.max(0, duration - 5)}
+          step={0.1}
+          disabled={isProcessing}
+        />
+        <Text className="text-center">Start Time: {startTime.toFixed(1)}s</Text>
+      </View>
+      <Pressable
+        className={`${isProcessing ? 'bg-gray-500' : 'bg-green-500'} p-4 rounded-lg mt-4`}
+        onPress={handleProcess}
+        disabled={isProcessing}
+      >
+        {isProcessing ? (
+          <View className="flex-row justify-center items-center">
+            <ActivityIndicator color="white" />
+            <Text className="text-white text-center ml-2">Processing...</Text>
+          </View>
+        ) : (
+          <Text className="text-white text-center">Process Video</Text>
+        )}
+      </Pressable>
+    </View>
+  );
+};
+
+// CropModal Component
 export default function CropModal() {
-  const [step, setStep] = useState<CropStep>(CropStep.SELECT)
-  const [videoUri, setVideoUri] = useState<string>()
-  const [start, setStart] = useState(0)
-  const [end, setEnd] = useState(5)
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const queryClient = useQueryClient()
+  const [step, setStep] = useState<CropStep>(CropStep.SELECT);
+  const [videoUri, setVideoUri] = useState<string>();
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const queryClient = useQueryClient();
 
   const pickVideo = async () => {
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        alert('Permission to access media library is required!')
-        return
+        alert('Permission to access media library is required!');
+        return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         quality: 1,
         allowsEditing: false,
-      })
+      });
 
       if (!result.canceled && result.assets[0].uri) {
-        setVideoUri(result.assets[0].uri)
-        setStep(CropStep.CROP)
+        setVideoUri(result.assets[0].uri);
+        setStep(CropStep.CROP);
       }
     } catch (error) {
-      console.error('Video picker error:', error)
-      alert('Error selecting video')
+      console.error('Video picker error:', error);
+      alert('Error selecting video');
     }
-  }
-
-  const processVideo = async () => {
-    try {
-      if (!videoUri) throw new Error('No video selected')
-
-      // URI dönüşümü
-      const fileUri = await convertContentUriToFileUri(videoUri)
-      console.log('Converted File URI:', fileUri)
-
-      // Çıktı dosyası yolu
-      const outputPath = `${FileSystem.documentDirectory}${Date.now()}.mp4`
-      console.log('Output Path:', outputPath)
-
-      // FFmpeg komutu
-      const command = `-y -i "${fileUri}" -ss ${start} -t ${end - start} -c copy "${outputPath}"`
-      console.log('FFmpeg Command:', command)
-
-      // FFmpeg komutunu çalıştır
-      const session = await FFmpegKit.execute(command)
-      console.log('FFmpeg Session Started')
-
-      // Return code'u al
-      const returnCode = await session.getReturnCode()
-      console.log('FFmpeg Return Code:', returnCode)
-
-      // Logları görüntüle
-      const logs = await session.getLogs()
-      logs.forEach(log => console.log('FFmpeg Log:', log.getMessage()))
-
-      // Hata durumunda
-      if (!returnCode.isValueSuccess()) {
-        const failLog = await session.getFailStackTrace()
-        console.error('FFmpeg Failed:', failLog)
-        throw new Error(`FFmpeg failed: ${failLog}`)
-      }
-
-      console.log('Video processing successful. Output:', outputPath)
-      return outputPath
-
-    } catch (error) {
-      console.error('Video processing error:', error)
-      throw new Error(`Processing failed: ${error.message}`)
-    }
-  }
-
-  const { mutate: handleProcessVideo, isPending } = useMutation({
-    mutationFn: processVideo,
-    onSuccess: (outputUri) => {
-      useVideoStore.getState().addVideo({
-        uri: outputUri,
-        name,
-        description,
-        start,
-        end
-      })
-      queryClient.invalidateQueries({ queryKey: ['videos'] })
-      setStep(CropStep.SELECT)
-      alert('Video successfully saved!')
-    },
-    onError: (error) => {
-      console.error('Mutation error:', error)
-      alert(`Error: ${error.message}`)
-    }
-  })
+  };
 
   return (
     <View className="flex-1 bg-gray-100 p-4">
@@ -145,58 +157,27 @@ export default function CropModal() {
       )}
 
       {step === CropStep.CROP && videoUri && (
-        <View className="flex-1">
-          <Video
-            source={{ uri: videoUri }}
-            className="w-full h-64 bg-black rounded-xl"
-            useNativeControls
-            resizeMode="contain"
-          />
-          
-          <View className="mt-8 bg-white p-4 rounded-xl shadow-sm">
-            <Text className="text-lg font-semibold mb-4">
-              Select 5-second clip ({end - start}s)
-            </Text>
-            
-            <Slider
-              minimumValue={0}
-              maximumValue={30}
-              step={0.5}
-              minimumTrackTintColor="#3b82f6"
-              maximumTrackTintColor="#e5e7eb"
-              thumbTintColor="#3b82f6"
-              value={start}
-              onSlidingComplete={(value) => {
-                if (value + 5 <= 30) {
-                  setStart(value)
-                  setEnd(value + 5)
-                }
-              }}
-            />
-            
-            <View className="flex-row justify-between mt-4">
-              <Pressable
-                onPress={() => setStep(CropStep.SELECT)}
-                className="bg-gray-200 px-6 py-2 rounded-lg active:bg-gray-300"
-              >
-                <Text className="text-gray-700 font-medium">Back</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setStep(CropStep.METADATA)}
-                className="bg-blue-500 px-6 py-2 rounded-lg active:bg-blue-600"
-              >
-                <Text className="text-white font-medium">Next</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+        <VideoCropper
+          videoUri={videoUri}
+          onCropComplete={(uri, duration) => {
+            useVideoStore.getState().addVideo({
+              uri,
+              name,
+              description,
+              start: 0,
+              end: 5,
+            });
+            queryClient.invalidateQueries(['videos']);
+            setStep(CropStep.METADATA); // METADATA adımına geç
+          }}
+        />
       )}
 
       {step === CropStep.METADATA && (
         <View className="flex-1">
           <View className="bg-white p-4 rounded-xl shadow-sm">
             <Text className="text-lg font-semibold mb-4">Add Details</Text>
-            
+
             <TextInput
               placeholder="Clip Name"
               placeholderTextColor="#9ca3af"
@@ -205,7 +186,7 @@ export default function CropModal() {
               className="border border-gray-200 p-3 rounded-lg mb-4 text-gray-800"
               maxLength={50}
             />
-            
+
             <TextInput
               placeholder="Description"
               placeholderTextColor="#9ca3af"
@@ -216,7 +197,7 @@ export default function CropModal() {
               className="border border-gray-200 p-3 rounded-lg h-32 text-gray-800"
               maxLength={200}
             />
-            
+
             <View className="flex-row justify-between mt-8">
               <Pressable
                 onPress={() => setStep(CropStep.CROP)}
@@ -225,22 +206,18 @@ export default function CropModal() {
                 <Text className="text-gray-700 font-medium">Back</Text>
               </Pressable>
               <Pressable
-                onPress={() => handleProcessVideo()}
-                disabled={isPending}
-                className={`bg-blue-500 px-6 py-2 rounded-lg ${
-                  isPending ? 'opacity-50' : 'active:bg-blue-600'
-                }`}
+                onPress={() => {
+                  setStep(CropStep.SELECT); // Kaydedip başa dön
+                  alert('Video successfully saved!');
+                }}
+                className="bg-blue-500 px-6 py-2 rounded-lg active:bg-blue-600"
               >
-                {isPending ? (
-                  <ActivityIndicator color="#ffffff" />
-                ) : (
-                  <Text className="text-white font-medium">Save Clip</Text>
-                )}
+                <Text className="text-white font-medium">Save Clip</Text>
               </Pressable>
             </View>
           </View>
         </View>
       )}
     </View>
-  )
+  );
 }
