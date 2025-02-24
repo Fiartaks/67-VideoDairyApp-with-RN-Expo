@@ -168,7 +168,7 @@ export default function CropModal() {
               end: 5,
             });
             queryClient.invalidateQueries(['videos']);
-            setStep(CropStep.METADATA); // METADATA adımına geç
+            setStep(CropStep.METADATA); 
           }}
         />
       )}
@@ -207,7 +207,7 @@ export default function CropModal() {
               </Pressable>
               <Pressable
                 onPress={() => {
-                  setStep(CropStep.SELECT); // Kaydedip başa dön
+                  setStep(CropStep.SELECT); 
                   alert('Video successfully saved!');
                 }}
                 className="bg-blue-500 px-6 py-2 rounded-lg active:bg-blue-600"
