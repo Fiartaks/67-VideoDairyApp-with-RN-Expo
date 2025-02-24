@@ -1,39 +1,33 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import 'react-native-reanimated';
+import { Stack } from 'expo-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import '../global.css'
+import { useEffect } from 'react'
+import { FFmpegKitConfig } from 'ffmpeg-kit-react-native'
 
-import { useColorScheme } from '@/hooks/useColorScheme';
-
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+const queryClient = new QueryClient()
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
-
-  if (!loaded) {
-    return null;
-  }
-
+    useEffect(() => {
+        // FFmpeg loglarını etkinleştir
+        FFmpegKitConfig.enableLogCallback(log => {
+          console.log('FFmpeg Log:', log.getMessage())
+        })
+    
+        // FFmpeg istatistiklerini etkinleştir
+        FFmpegKitConfig.enableStatisticsCallback(stats => {
+          console.log('FFmpeg Stats:', stats)
+        })
+    
+        console.log('FFmpegKit initialized successfully')
+      }, [])
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
-  );
+    <QueryClientProvider client={queryClient}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: 'fade'
+        }}
+      />
+    </QueryClientProvider>
+  )
 }
